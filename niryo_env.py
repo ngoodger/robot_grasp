@@ -5,6 +5,8 @@ import numpy as np
 import os
 import pybullet
 from typing import List, Tuple, Any
+import xml
+import xml.etree.ElementTree as ET
 
 # Initial State 
 ROBOT_START_POS = [0.0, 0.0, 0.001]
@@ -25,6 +27,24 @@ PART_TARGET_Z_DONE_TOL_STEPS = 100
 MAX_STEPS_DONE = 10000
 
 
+def urdf_state_limits_to_numpy(urdf: xml.etree.ElementTree.Element):
+    # Return  URDF defined limits as lower and upper np.ndarray
+    MOVABLE_JOINT_TYPES = ["revolute", "planar"]
+    lower_limits, upper_limits = [], []
+    urdf_joints = urdf.findall("joint")
+    for urdf_joint in urdf_joints:
+        if (urdf_joint.attrib["type"] in MOVABLE_JOINT_TYPES):
+            limit = urdf_joint.find("limit")
+            if limit is None:
+                raise ValueError("Limit is not defined for tag: {} "
+                                 .format(urdf_joint.attrib["name"]))
+            lower_limits.append(float(limit.attrib["lower"]))
+            lower_limits.append(-float(limit.attrib["velocity"]))
+            upper_limits.append(float(limit.attrib["upper"]))
+            upper_limits.append(float(limit.attrib["velocity"]))
+    return (np.array(lower_limits), np.array(upper_limits))
+
+
 class NiryoRobotEnv(gym.Env):
     metadata = {
                 'render.modes': ['human', 'rgb_array'],
@@ -34,21 +54,17 @@ class NiryoRobotEnv(gym.Env):
     def __init__(self, render: bool=True) -> None:
         # self._observation = [] # type: List[np.ndarray]
         self.action_space = spaces.Discrete(ACTION_SPACE_SIZE)
-        self.observation_space = spaces.Box(low=np.array([0.0,  # ground_joint
-                                                          -3.05433,  # joint_1
-                                                          -1.5707963268,  # joint_2
-                                                          -1.401,  # joint_3
-                                                          -2.61799,  # joint_4
-                                                          -2.26893,  # joint_5
-                                                          -2.57,  # joint_6
-                                                          ]),
-                                            high=np.array([0.0,  # ground_joint
-                                                           3.05433,  # joint_1
-                                                           0.628319,  # joint_2
-                                                           0.994838,  # joint_3
-                                                           2.61799,  # joint_4
-                                                           2.57,  # joint_5
-                                                           ]),
+        path = os.path.abspath(os.path.dirname("__file__"))
+        self.robot_urdf_abs_path = os.path.join(path, "niryo_one_description"
+                                                      "/urdf/niryo_one.urdf")
+        self.part_urdf_abs_path = os.path.join(path,
+                                               "niryo_one_description"
+                                               "/urdf/part.urdf")
+        tree = ET.parse(self.robot_urdf_abs_path)
+        root = tree.getroot()
+        lower, upper = urdf_state_limits_to_numpy(root)
+        self.observation_space = spaces.Box(low=lower,
+                                            high=upper,
                                             dtype=np.float32)
         if (render):
             self.pysicsClient = pybullet.connect(pybullet.GUI)
@@ -77,10 +93,7 @@ class NiryoRobotEnv(gym.Env):
         robot_start_orientation = (pybullet.
                                    getQuaternionFromEuler
                                    (ROBOT_START_ORIENTATION))
-        path = os.path.abspath(os.path.dirname("__file__"))
-        robot_urdf_abs_path = os.path.join(path, "niryo_one_description"
-                                           "/urdf/niryo_one.urdf")
-        self.bot_id = pybullet.loadURDF(robot_urdf_abs_path,
+        self.bot_id = pybullet.loadURDF(self.robot_urdf_abs_path,
                                         robot_start_pos,
                                         robot_start_orientation,
                                         useFixedBase=True)
@@ -88,10 +101,7 @@ class NiryoRobotEnv(gym.Env):
         part_start_orientation = (pybullet
                                   .getQuaternionFromEuler
                                   (PART_START_ORIENTATION))
-        part_urdf_abs_path = os.path.join(path,
-                                          "niryo_one_description"
-                                          "/urdf/part.urdf")
-        self.part_id = pybullet.loadURDF(part_urdf_abs_path,
+        self.part_id = pybullet.loadURDF(self.part_urdf_abs_path,
                                          part_start_pos,
                                          part_start_orientation)
         self._observation = self._compute_observation()
