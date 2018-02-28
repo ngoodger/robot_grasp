@@ -206,6 +206,7 @@
     <parent link="gripper_link"/>
     <child link="gripper_finger_link"/>
     <origin rpy="-1.5707963268 -1.5707963268 0" xyz="0 0 0.0"/>
+    <limit effort="1" lower="-1.0" upper="1.0" velocity="1.0"/>
   </joint>
 </robot>
 
